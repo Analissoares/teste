@@ -1,44 +1,79 @@
 import streamlit as st
-from streamlit_folium import folium_static
 import folium
+from streamlit_folium import folium_static
+import geopandas as gpd
+import requests
+import tempfile
+import os
+from folium.plugins import MarkerCluster, HeatMap, MeasureControl
 
-# Configuração da página (corrigido)
-PAGE_CONFIG = {
-    "page_title": "Aplicação de Mapas",
-    "page_icon": ":smiley:",
-    "layout": "centered"
-}
-st.set_page_config(**PAGE_CONFIG)  # Corrigido: adicionado ** para desempacotar
+st.set_page_config(page_title="Mapa Bancário", layout="wide")
 
-def main():
-    st.title("Como adicionar mapas no Streamlit")
-    st.subheader("Cabe nos cadernos do Colab")  # Preservando o texto original
-    menu = ["Menu", "Mapa"]
-    
-    # Corrigido: st.sidebar.selectbox
-    choice = st.sidebar.selectbox("Menu", menu)  
-    
-    if choice == "Menu":  # Corrigido: operador de comparação ==
-        st.subheader("Página inicial 1")
-    elif choice == "Mapa":  # Corrigido: operador de comparação ==
-        st.subheader("Visualizar Mapa")  # Interpretação de "Ismailzar Mapa"
-        
-        # Criando o mapa (corrigido conforme comentário linha 17)
-        m = folium.Map(
-            location=[-25.5, -49.3],  # Coordenadas aproximadas de Curitiba
-            zoom_start=11
-        )
-        
-        # Adicionando um marcador de exemplo
-        folium.Marker(
-            location=[-25.5, -49.3],
-            popup="Localização exemplo"
-        ).add_to(m)
-        
-        with st.container():  # Corrigido: st.container() em vez de st.scho()
-            folium_static(m)  # Exibindo o mapa
-    else:
-        st.subheader("")
+st.title("Visualização de Sistemas Bancários por Bairro")
 
-if __name__ == "__main__":  # Corrigido: sintaxe correta
-    main()
+# URLs dos arquivos GeoJSON no GitHub
+BAIRROS_URL = "https://raw.githubusercontent.com/Analissoares/teste3/main/data/bairros.geojson"
+SB_URL = "https://raw.githubusercontent.com/Analissoares/teste3/main/data/dados_SB.geojson"
+
+# Função para carregar GeoJSON a partir da web com GeoPandas
+def load_gdf_from_url(url):
+    with tempfile.NamedTemporaryFile(suffix=".geojson", delete=False) as tmp:
+        response = requests.get(url)
+        tmp.write(response.content)
+        tmp_path = tmp.name
+    gdf = gpd.read_file(tmp_path)
+    os.remove(tmp_path)
+    return gdf
+
+# Carrega os dados
+bairros_data = load_gdf_from_url(BAIRROS_URL)
+df_sb = load_gdf_from_url(SB_URL)
+
+# Converte ambos para o mesmo CRS (WGS 84)
+bairros_data = bairros_data.to_crs(epsg=4326)
+df_sb = df_sb.to_crs(epsg=4326)
+
+# Spatial join para contar sistemas bancários por bairro
+join = gpd.sjoin(bairros_data, df_sb, how="left", predicate="contains")
+counts = join.groupby(join.index).size()
+bairros_data["sistemas_bancarios"] = counts.reindex(bairros_data.index, fill_value=0)
+
+# Cria mapa base
+m = folium.Map(location=[-25.5, -49.3], tiles='OpenStreetMap', zoom_start=12)
+
+# Adiciona camada dos bairros
+folium.GeoJson(
+    bairros_data,
+    name='Bairros',
+    style_function=lambda feature: {
+        'fillColor': '#FFF8DC',
+        'color': 'black',
+        'weight': 1.5,
+        'fillOpacity': 0.6
+    },
+    tooltip=folium.GeoJsonTooltip(
+        fields=["NOME", "sistemas_bancarios"],
+        aliases=["Bairro:", "Qtd. de Sistemas Bancários:"],
+        localize=True,
+        sticky=False,
+        labels=True,
+        style=("background-color: white; color: black; font-family: arial; font-size: 12px; padding: 5px;")
+    )
+).add_to(m)
+
+# Adiciona marcadores agrupados
+locations = [[geom.y, geom.x] for geom in df_sb.geometry if geom.geom_type == 'Point']
+marker_cluster = MarkerCluster(name='Sistemas Bancários (pontos)')
+for loc in locations:
+    folium.Marker(location=loc).add_to(marker_cluster)
+marker_cluster.add_to(m)
+
+# Adiciona mapa de calor
+HeatMap(locations, name='Mapa de Calor').add_to(m)
+
+# Controles
+folium.LayerControl().add_to(m)
+m.add_child(MeasureControl())
+
+# Exibe o mapa no Streamlit
+folium_static(m)
