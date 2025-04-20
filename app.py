@@ -12,8 +12,8 @@ st.set_page_config(page_title="Mapa Bancário", layout="wide")
 st.title("Visualização de Sistemas Bancários por Bairro")
 
 # URLs dos arquivos GeoJSON no GitHub
-BAIRROS_URL = "https://raw.githubusercontent.com/Analissoares/teste3/main/data/bairros.geojson"
-SB_URL = "https://raw.githubusercontent.com/Analissoares/teste3/main/data/dados_SB.geojson"
+BAIRROS_URL = "https://raw.githubusercontent.com/Analissoares/teste/main/data/bairros.geojson"
+SB_URL = "https://raw.githubusercontent.com/Analissoares/teste/main/data/dados_SB.geojson"
 
 # Função para carregar GeoJSON a partir da web com GeoPandas
 def load_gdf_from_url(url):
